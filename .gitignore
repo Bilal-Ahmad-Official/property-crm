@@ -1,7 +1,8 @@
 node_modules/
 .next/
 out/
-prisma/dev.db
+# prisma/dev.db must be committed so Vercel's build can bundle it
+# (src/lib/db.ts copies it to the writable temp dir at runtime)
 prisma/dev.db-journal
 .env*.local
 .DS_Store
