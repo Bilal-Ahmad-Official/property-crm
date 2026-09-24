@@ -1,0 +1,431 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+// Roles per SRS §2 Target Users:
+// ADMIN (system administration) | MANAGER (approvals, reports) | SALES (sales & booking)
+// FINANCE (payments & transaction records) | INVENTORY (property/inventory staff)
+model User {
+  id         String   @id @default(cuid())
+  name       String
+  email      String   @unique
+  password   String
+  role       String   @default("SALES")
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  properties Property[]
+  leads      Lead[]       @relation("LeadAssignee")
+  deals      Deal[]       @relation("DealOwner")
+  tasks      Task[]       @relation("TaskAssignee")
+  activities Activity[]
+  history    StatusHistory[]
+
+  bookingCreated     Booking[]         @relation("BookingCreator")
+  bookingReviewed    Booking[]         @relation("BookingReviewer")
+  salesAsAgent       Sale[]            @relation("SaleAgent")
+  saleCreated        Sale[]            @relation("SaleCreator")
+  saleReviewed       Sale[]            @relation("SaleReviewer")
+  purchaseCreated    Purchase[]        @relation("PurchaseCreator")
+  purchaseReviewed   Purchase[]        @relation("PurchaseReviewer")
+  paymentCreated     Payment[]         @relation("PaymentCreator")
+  transferCreated    PropertyTransfer[] @relation("TransferCreator")
+  transferReviewed   PropertyTransfer[] @relation("TransferReviewer")
+  buybackCreated     BuyBack[]         @relation("BuyBackCreator")
+  buybackReviewed    BuyBack[]         @relation("BuyBackReviewer")
+  chargeCreated      Charge[]          @relation("ChargeCreator")
+  noticeCreated      Notice[]          @relation("NoticeCreator")
+}
+
+// Organizational grouping master data (SRS §5: projects/blocks or business-defined categories)
+model Project {
+  id        String   @id @default(cuid())
+  name      String
+  code      String?
+  type      String   @default("PROJECT") // PROJECT | BLOCK | PHASE | CATEGORY
+  city      String?
+  status    String   @default("ACTIVE") // ACTIVE | INACTIVE
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  properties Property[]
+}
+
+model Property {
+  id          String   @id @default(cuid())
+  ref         String   @unique
+  title       String
+  description String?
+  type        String   @default("APARTMENT") // APARTMENT | HOUSE | VILLA | PLOT | COMMERCIAL | OFFICE
+  status      String   @default("AVAILABLE") // AVAILABLE | RESERVED | SOLD | RENTED | INACTIVE
+  listingType String   @default("SALE") // SALE | RENT
+  price       Float    @default(0)
+  bedrooms    Int      @default(0)
+  bathrooms   Int      @default(0)
+  area        Float    @default(0) // sq ft
+  address     String
+  city        String
+  state       String?
+  zip         String?
+  imageUrl    String?
+  featured    Boolean  @default(false)
+  projectId   String?
+  project     Project? @relation(fields: [projectId], references: [id])
+  ownerId     String?
+  owner       User?    @relation(fields: [ownerId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  leads       Lead[]
+  deals       Deal[]
+  activities  Activity[]
+  bookings    Booking[]
+  sales       Sale[]
+  purchases   Purchase[]
+  transfers   PropertyTransfer[]
+  buybacks    BuyBack[]
+  charges     Charge[]
+  payments    Payment[]
+}
+
+model Contact {
+  id         String   @id @default(cuid())
+  ref         String  @unique
+  name       String
+  email      String?
+  phone      String?
+  type       String   @default("BUYER") // BUYER | SELLER | TENANT | LANDLORD | VENDOR | OTHER
+  notes      String?
+  address    String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  leads      Lead[]
+  deals      Deal[]
+  activities Activity[]
+  bookings   Booking[]
+  sales      Sale[]
+  purchases  Purchase[] @relation("PurchaseVendor")
+  transfersFrom PropertyTransfer[] @relation("TransferFrom")
+  transfersTo   PropertyTransfer[] @relation("TransferTo")
+  buybacks  BuyBack[]
+  charges   Charge[]
+  payments  Payment[]
+}
+
+model Lead {
+  id           String    @id @default(cuid())
+  name         String
+  email        String?
+  phone        String?
+  source       String    @default("WEBSITE") // WEBSITE | REFERRAL | WALK_IN | CALL | SOCIAL | PORTAL | OTHER
+  status       String    @default("NEW") // NEW | CONTACTED | QUALIFIED | VIEWING | NEGOTIATION | WON | LOST
+  budgetMin    Float?
+  budgetMax    Float?
+  interest     String?
+  propertyId   String?
+  property     Property? @relation(fields: [propertyId], references: [id])
+  contactId    String?
+  contact      Contact?  @relation(fields: [contactId], references: [id])
+  assignedToId String?
+  assignedTo   User?     @relation("LeadAssignee", fields: [assignedToId], references: [id])
+  notes        String?
+  score        Int       @default(0) // 0-100
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deals        Deal[]
+  activities   Activity[]
+}
+
+// Pre-close sales pipeline (opportunity tracking; converts into a Booking/Sale)
+model Deal {
+  id                String    @id @default(cuid())
+  title             String
+  value             Float
+  commission        Float     @default(0)
+  stage             String    @default("OFFER_MADE") // OFFER_MADE | DUE_DILIGENCE | CONTRACT | CLOSING | CLOSED_WON | CLOSED_LOST
+  type              String    @default("SALE") // SALE | RENT
+  propertyId        String?
+  property          Property? @relation(fields: [propertyId], references: [id])
+  contactId         String?
+  contact           Contact?  @relation(fields: [contactId], references: [id])
+  leadId            String?
+  lead              Lead?     @relation(fields: [leadId], references: [id])
+  ownerId           String?
+  owner             User?     @relation("DealOwner", fields: [ownerId], references: [id])
+  expectedCloseDate DateTime?
+  closedAt          DateTime?
+  notes             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  activities        Activity[]
+}
+
+model Task {
+  id           String    @id @default(cuid())
+  title        String
+  description  String?
+  dueDate      DateTime?
+  priority     String    @default("MEDIUM") // LOW | MEDIUM | HIGH | URGENT
+  status       String    @default("PENDING") // PENDING | IN_PROGRESS | COMPLETED | CANCELLED
+  type         String    @default("FOLLOW_UP") // FOLLOW_UP | VIEWING | CALL | MEETING | PAPERWORK | OTHER
+  relatedType  String? // PROPERTY | LEAD | DEAL | CONTACT | BOOKING | SALE | PURCHASE
+  relatedId    String?
+  assignedToId String?
+  assignedTo   User?     @relation("TaskAssignee", fields: [assignedToId], references: [id])
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model Activity {
+  id         String    @id @default(cuid())
+  type       String // NOTE | CALL | EMAIL | MEETING | VIEWING | STATUS_CHANGE | SYSTEM
+  content    String
+  entityType String // PROPERTY | LEAD | DEAL | CONTACT | BOOKING | SALE | PURCHASE | PAYMENT | TRANSFER | BUYBACK | CHARGE | NOTICE
+  entityId   String
+  userId     String?
+  user       User?     @relation(fields: [userId], references: [id])
+  propertyId String?
+  property   Property? @relation(fields: [propertyId], references: [id])
+  leadId     String?
+  lead       Lead?     @relation(fields: [leadId], references: [id])
+  dealId     String?
+  deal       Deal?     @relation(fields: [dealId], references: [id])
+  contactId  String?
+  contact    Contact?  @relation(fields: [contactId], references: [id])
+  createdAt  DateTime  @default(now())
+}
+
+/* ----------
+ * Business transactions (SRS §3/§6).
+ * Shared lifecycle per SRS §4:
+ *   DRAFT → SUBMITTED → (UNDER_REVIEW) → APPROVED | REJECTED | RETURNED → COMPLETED
+ * CANCELLED allowed before finalization. APPROVED/COMPLETED records are edit-locked.
+ * ---------- */
+
+model Booking {
+  id                String    @id @default(cuid())
+  ref               String    @unique
+  customerId        String
+  customer          Contact   @relation(fields: [customerId], references: [id])
+  propertyId        String
+  property          Property  @relation(fields: [propertyId], references: [id])
+  status            String    @default("DRAFT")
+  bookingAmount     Float     @default(0)
+  depositAmount     Float     @default(0)
+  bookingDate       DateTime  @default(now())
+  expectedCloseDate DateTime?
+  notes             String?
+  createdById       String?
+  createdBy         User?     @relation("BookingCreator", fields: [createdById], references: [id])
+  submittedAt       DateTime?
+  reviewedById      String?
+  reviewedBy        User?     @relation("BookingReviewer", fields: [reviewedById], references: [id])
+  reviewedAt        DateTime?
+  reviewNote        String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  sales             Sale[]
+}
+
+model Sale {
+  id             String    @id @default(cuid())
+  ref            String    @unique
+  bookingId      String?
+  booking        Booking?  @relation(fields: [bookingId], references: [id])
+  customerId     String
+  customer       Contact   @relation(fields: [customerId], references: [id])
+  propertyId     String
+  property       Property  @relation(fields: [propertyId], references: [id])
+  status         String    @default("DRAFT")
+  saleAmount     Float     @default(0)
+  discountAmount Float     @default(0)
+  commission     Float     @default(0)
+  saleDate       DateTime  @default(now())
+  agentId        String?
+  agent          User?     @relation("SaleAgent", fields: [agentId], references: [id])
+  notes          String?
+  createdById    String?
+  createdBy      User?     @relation("SaleCreator", fields: [createdById], references: [id])
+  submittedAt    DateTime?
+  reviewedById   String?
+  reviewedBy     User?     @relation("SaleReviewer", fields: [reviewedById], references: [id])
+  reviewedAt     DateTime?
+  reviewNote     String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model Purchase {
+  id             String    @id @default(cuid())
+  ref            String    @unique
+  propertyId     String
+  property       Property  @relation(fields: [propertyId], references: [id])
+  vendorId       String
+  vendor         Contact   @relation("PurchaseVendor", fields: [vendorId], references: [id])
+  status         String    @default("DRAFT")
+  purchaseAmount Float     @default(0)
+  purchaseDate   DateTime  @default(now())
+  notes          String?
+  createdById    String?
+  createdBy      User?     @relation("PurchaseCreator", fields: [createdById], references: [id])
+  submittedAt    DateTime?
+  reviewedById   String?
+  reviewedBy     User?     @relation("PurchaseReviewer", fields: [reviewedById], references: [id])
+  reviewedAt     DateTime?
+  reviewNote     String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model Payment {
+  id          String    @id @default(cuid())
+  ref         String    @unique
+  direction   String    @default("RECEIPT") // RECEIPT (in) | PAYMENT (out)
+  method      String    @default("BANK_TRANSFER") // CASH | BANK_TRANSFER | CHEQUE | CARD | OTHER
+  status      String    @default("CONFIRMED") // PENDING | CONFIRMED | CANCELLED
+  amount      Float     @default(0)
+  paymentDate DateTime  @default(now())
+  relatedType String?   // BOOKING | SALE | PURCHASE | TRANSFER | BUYBACK | CHARGE
+  relatedId   String?
+  relatedRef  String? // denormalized business ref for display/search
+  customerId  String?
+  customer    Contact?  @relation(fields: [customerId], references: [id])
+  propertyId  String?
+  property    Property? @relation(fields: [propertyId], references: [id])
+  notes       String?
+  createdById String?
+  createdBy   User?     @relation("PaymentCreator", fields: [createdById], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model PropertyTransfer {
+  id             String    @id @default(cuid())
+  ref            String    @unique
+  propertyId     String
+  property       Property  @relation(fields: [propertyId], references: [id])
+  fromCustomerId String?
+  fromCustomer   Contact?  @relation("TransferFrom", fields: [fromCustomerId], references: [id])
+  toCustomerId   String
+  toCustomer     Contact   @relation("TransferTo", fields: [toCustomerId], references: [id])
+  status         String    @default("DRAFT")
+  transferDate   DateTime  @default(now())
+  transferFee    Float     @default(0)
+  notes          String?
+  createdById    String?
+  createdBy      User?     @relation("TransferCreator", fields: [createdById], references: [id])
+  submittedAt    DateTime?
+  reviewedById   String?
+  reviewedBy     User?     @relation("TransferReviewer", fields: [reviewedById], references: [id])
+  reviewedAt     DateTime?
+  reviewNote     String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model BuyBack {
+  id            String    @id @default(cuid())
+  ref           String    @unique
+  propertyId    String
+  property      Property  @relation(fields: [propertyId], references: [id])
+  customerId    String
+  customer      Contact   @relation(fields: [customerId], references: [id])
+  saleId        String? // originating sale (plain reference, not enforced)
+  status        String    @default("DRAFT")
+  buybackAmount Float     @default(0)
+  buybackDate   DateTime  @default(now())
+  reason        String?
+  notes         String?
+  createdById   String?
+  createdBy     User?     @relation("BuyBackCreator", fields: [createdById], references: [id])
+  submittedAt   DateTime?
+  reviewedById  String?
+  reviewedBy    User?     @relation("BuyBackReviewer", fields: [reviewedById], references: [id])
+  reviewedAt    DateTime?
+  reviewNote    String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+// Charges & Notices (SRS §3 item 10)
+model Charge {
+  id          String    @id @default(cuid())
+  ref         String    @unique
+  title       String
+  chargeType  String    @default("SERVICE_CHARGE") // SERVICE_CHARGE | MAINTENANCE | LATE_FEE | UTILITY | LEGAL | OTHER
+  status      String    @default("PENDING") // PENDING | PAID | WAIVED | CANCELLED
+  amount      Float     @default(0)
+  chargeDate  DateTime  @default(now())
+  dueDate     DateTime?
+  propertyId  String?
+  property    Property? @relation(fields: [propertyId], references: [id])
+  relatedType String?   // BOOKING | SALE | PURCHASE | CUSTOMER
+  relatedId   String?
+  relatedRef  String?
+  customerId  String?
+  customer    Contact?  @relation(fields: [customerId], references: [id])
+  notes       String?
+  createdById String?
+  createdBy   User?     @relation("ChargeCreator", fields: [createdById], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Notice {
+  id          String    @id @default(cuid())
+  title       String
+  content     String
+  audience    String    @default("ALL") // ALL | ADMIN | MANAGER | SALES | FINANCE | INVENTORY
+  status      String    @default("PUBLISHED") // DRAFT | PUBLISHED | ARCHIVED
+  publishedAt DateTime?
+  expiresAt   DateTime?
+  createdById String?
+  createdBy   User?     @relation("NoticeCreator", fields: [createdById], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+// Generic audit trail (SRS §8: audit/activity history for important actions)
+model StatusHistory {
+  id         String   @id @default(cuid())
+  entityType String // BOOKING | SALE | PURCHASE | TRANSFER | BUYBACK | CHARGE | PAYMENT | PROPERTY | USER
+  entityId   String
+  entityRef  String?
+  action     String // CREATED | UPDATED | SUBMITTED | START_REVIEW | APPROVED | REJECTED | RETURNED | CANCELLED | COMPLETED | STATUS_CHANGE | PAID | WAIVED
+  fromStatus String?
+  toStatus   String?
+  note       String?
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+}
+
+// Sequential business-reference generator, one row per PREFIX-YEAR
+model Counter {
+  id  String @id
+  seq Int    @default(0)
+}
+
+// Key/value application configuration (SRS §3 item 13 / §7 currency & display preferences)
+model Setting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  sessionId String
+  role      String // user | assistant
+  content   String
+  createdAt DateTime @default(now())
+
+  @@index([sessionId])
+}
