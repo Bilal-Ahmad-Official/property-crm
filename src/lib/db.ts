@@ -11,8 +11,12 @@ const globalForPrisma = globalThis as unknown as { prisma: PrismaClient | undefi
 const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
 
 function databaseUrl(): string {
-  const configured = process.env.DATABASE_URL;
-  if (configured && !configured.startsWith("file:")) return configured;
+  // The schema declares provider "sqlite", so Prisma rejects any DATABASE_URL
+  // that does not start with file: (e.g. a Postgres URL set in the hosting
+  // dashboard). Only file: URLs are honored; anything else is ignored.
+  const configured = process.env.DATABASE_URL?.startsWith("file:")
+    ? process.env.DATABASE_URL
+    : undefined;
 
   const sourceDb = path.join(process.cwd(), "prisma", "dev.db");
   if (!isServerless) return configured ?? `file:${sourceDb}`;
